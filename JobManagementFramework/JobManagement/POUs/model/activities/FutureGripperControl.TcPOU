@@ -1,0 +1,137 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FutureGripperControl" Id="{12345678-1234-1234-1234-123456789abc}" SpecialFunc="None">
+    <Declaration><![CDATA[{attribute 'enable_dynamic_creation'}
+FUNCTION_BLOCK FutureGripperControl EXTENDS FB_AbstructFuture
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	_gripper_close_output : REFERENCE TO BOOL;
+	_gripper_open_output : REFERENCE TO BOOL;
+	_gripper_closed_sensor : REFERENCE TO BOOL;
+	_gripper_open_sensor : REFERENCE TO BOOL;
+	_command : BOOL; // TRUE = Close, FALSE = Open
+	_timeout_timer : TON;
+	_timeout_value : TIME := T#5S;
+	_error_id : UDINT;
+	_exec_state : UDINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="execute" Id="{12345678-1234-1234-1234-123456789def}">
+      <Declaration><![CDATA[METHOD execute : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _exec_state OF
+	0: // Start gripper operation
+		_timeout_timer(IN := FALSE);
+		
+		IF _command THEN // Close gripper
+			_gripper_close_output := TRUE;
+			_gripper_open_output := FALSE;
+		ELSE // Open gripper
+			_gripper_close_output := FALSE;
+			_gripper_open_output := TRUE;
+		END_IF
+		
+		_exec_state := 1;
+		
+	1: // Wait for gripper to reach position
+		_timeout_timer(IN := TRUE, PT := _timeout_value);
+		
+		IF _command THEN // Closing - wait for closed sensor
+			IF _gripper_closed_sensor THEN
+				_error_id := 0;
+				execute := TRUE;
+			ELSIF _timeout_timer.Q THEN
+				_error_id := 16#8001; // Gripper close timeout error
+				execute := TRUE;
+			END_IF
+		ELSE // Opening - wait for open sensor
+			IF _gripper_open_sensor THEN
+				_error_id := 0;
+				execute := TRUE;
+			ELSIF _timeout_timer.Q THEN
+				_error_id := 16#8002; // Gripper open timeout error
+				execute := TRUE;
+			END_IF
+		END_IF
+END_CASE
+
+_timeout_timer();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="init" Id="{12345678-1234-1234-1234-123456789fed}">
+      <Declaration><![CDATA[METHOD init : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_exec_state := 0;
+_error_id := 0;
+_timeout_timer(IN := FALSE);
+init := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="nErrorID" Id="{12345678-1234-1234-1234-123456789cba}">
+      <Declaration><![CDATA[PROPERTY nErrorID : UDINT]]></Declaration>
+      <Get Name="Get" Id="{12345678-1234-1234-1234-123456789dfe}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[nErrorID := _error_id;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{12345678-1234-1234-1234-123456789ced}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="set_parameters" Id="{12345678-1234-1234-1234-123456789bcd}">
+      <Declaration><![CDATA[METHOD set_parameters : BOOL
+VAR_INPUT
+	gripper_close_output : REFERENCE TO BOOL;
+	gripper_open_output : REFERENCE TO BOOL;
+	gripper_closed_sensor : REFERENCE TO BOOL;
+	gripper_open_sensor : REFERENCE TO BOOL;
+	command : BOOL; // TRUE = Close, FALSE = Open
+	timeout : TIME := T#5S;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_gripper_close_output REF= gripper_close_output;
+_gripper_open_output REF= gripper_open_output;
+_gripper_closed_sensor REF= gripper_closed_sensor;
+_gripper_open_sensor REF= gripper_open_sensor;
+_command := command;
+_timeout_value := timeout;
+set_parameters := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FutureGripperControl">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureGripperControl.execute">
+      <LineId Id="1" Count="36" />
+    </LineIds>
+    <LineIds Name="FutureGripperControl.init">
+      <LineId Id="1" Count="3" />
+    </LineIds>
+    <LineIds Name="FutureGripperControl.nErrorID.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureGripperControl.nErrorID.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureGripperControl.set_parameters">
+      <LineId Id="1" Count="6" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

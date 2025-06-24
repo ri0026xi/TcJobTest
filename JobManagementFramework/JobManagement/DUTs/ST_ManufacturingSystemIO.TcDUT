@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_ManufacturingSystemIO" Id="{33333333-4444-5555-6666-777777777777}">
+    <Declaration><![CDATA[TYPE ST_ManufacturingSystemIO :
+STRUCT
+	// 入力スイッチ (Input Switches)
+	start_switch			: BOOL; // 開始スイッチ
+	stop_switch				: BOOL; // 停止スイッチ
+	reset_switch			: BOOL; // リセットスイッチ
+	part_present_sensor		: BOOL; // 部品検知センサー
+	gripper_closed_sensor	: BOOL; // グリッパー閉状態センサー
+	gripper_open_sensor		: BOOL; // グリッパー開状態センサー
+	
+	// 状態ランプ出力 (Status Lamp Outputs)
+	ready_lamp				: BOOL; // 準備完了ランプ（緑）
+	running_lamp			: BOOL; // 動作中ランプ（青）
+	error_lamp				: BOOL; // エラーランプ（赤）
+	completed_lamp			: BOOL; // 完了ランプ（緑）
+	
+	// グリッパー制御出力 (Gripper Control Outputs)
+	gripper_close_output	: BOOL; // グリッパー閉指令
+	gripper_open_output		: BOOL; // グリッパー開指令
+	
+	// 軸リファレンス (Axis References)
+	x_axis					: AXIS_REF; // X軸（水平移動）
+	y_axis					: AXIS_REF; // Y軸（水平移動）
+	z_axis					: AXIS_REF; // Z軸（垂直移動）
+	
+	// 位置データ (Position Data)
+	home_position_x			: LREAL := 0.0;		// X軸ホーム位置
+	home_position_y			: LREAL := 0.0;		// Y軸ホーム位置
+	home_position_z			: LREAL := 100.0;	// Z軸ホーム位置（上位置）
+	
+	pick_position_x			: LREAL := 200.0;	// ピック位置X
+	pick_position_y			: LREAL := 150.0;	// ピック位置Y
+	pick_position_z			: LREAL := 10.0;	// ピック位置Z（下位置）
+	
+	place_position_x		: LREAL := 400.0;	// プレース位置X
+	place_position_y		: LREAL := 150.0;	// プレース位置Y
+	place_position_z		: LREAL := 15.0;	// プレース位置Z（下位置）
+	
+	// モーション制御パラメータ (Motion Control Parameters)
+	velocity_xy				: LREAL := 500.0;	// XY軸速度 [mm/min]
+	velocity_z				: LREAL := 200.0;	// Z軸速度 [mm/min]
+	acceleration			: LREAL := 2000.0;	// 加速度 [mm/s²]
+	deceleration			: LREAL := 2000.0;	// 減速度 [mm/s²]
+	jerk					: LREAL := 10000.0;	// ジャーク [mm/s³]
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

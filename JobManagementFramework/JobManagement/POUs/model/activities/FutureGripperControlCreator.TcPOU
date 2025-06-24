@@ -1,0 +1,98 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FutureGripperControlCreator" Id="{87654321-4321-4321-4321-123456789abc}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FutureGripperControlCreator IMPLEMENTS InterfaceTaskCreator
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	_gripper_close_output : REFERENCE TO BOOL;
+	_gripper_open_output : REFERENCE TO BOOL;
+	_gripper_closed_sensor : REFERENCE TO BOOL;
+	_gripper_open_sensor : REFERENCE TO BOOL;
+	_command : BOOL;
+	_timeout : TIME := T#5S;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="create_future" Id="{87654321-4321-4321-4321-123456789def}">
+      <Declaration><![CDATA[METHOD create_future : InterfaceFuture
+VAR_INPUT
+    future_name : STRING;
+END_VAR
+VAR
+    _p_future : POINTER TO FutureGripperControl;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_p_future := __NEW(FutureGripperControl);
+_p_future^.future_name := future_name;
+
+_p_future^.set_parameters(
+    gripper_close_output := _gripper_close_output,
+    gripper_open_output := _gripper_open_output,
+    gripper_closed_sensor := _gripper_closed_sensor,
+    gripper_open_sensor := _gripper_open_sensor,
+    command := _command,
+    timeout := _timeout
+);
+
+create_future := _p_future^;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="destroy_future" Id="{87654321-4321-4321-4321-123456789fed}">
+      <Declaration><![CDATA[METHOD destroy_future : InterfaceFuture
+VAR_INPUT
+    future : InterfaceFuture;
+END_VAR
+VAR
+    _p_future : POINTER TO FutureGripperControl;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF __QUERYPOINTER(future, _p_future) THEN
+	__DELETE(_p_future);
+	IF _p_future = 0 THEN
+		destroy_future := 0;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="set_parameters" Id="{87654321-4321-4321-4321-123456789cba}">
+      <Declaration><![CDATA[METHOD set_parameters : BOOL
+VAR_INPUT
+	gripper_close_output : REFERENCE TO BOOL;
+	gripper_open_output : REFERENCE TO BOOL;
+	gripper_closed_sensor : REFERENCE TO BOOL;
+	gripper_open_sensor : REFERENCE TO BOOL;
+	command : BOOL;
+	timeout : TIME := T#5S;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_gripper_close_output REF= gripper_close_output;
+_gripper_open_output REF= gripper_open_output;
+_gripper_closed_sensor REF= gripper_closed_sensor;
+_gripper_open_sensor REF= gripper_open_sensor;
+_command := command;
+_timeout := timeout;
+set_parameters := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FutureGripperControlCreator">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureGripperControlCreator.create_future">
+      <LineId Id="1" Count="10" />
+    </LineIds>
+    <LineIds Name="FutureGripperControlCreator.destroy_future">
+      <LineId Id="1" Count="5" />
+    </LineIds>
+    <LineIds Name="FutureGripperControlCreator.set_parameters">
+      <LineId Id="1" Count="6" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
