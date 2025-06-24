@@ -1,0 +1,250 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.13">
+  <POU Name="FB_ParallelJobContainer" Id="{6f1bfb39-c90d-44cd-a726-24b4c87f95f3}" SpecialFunc="None">
+    <Declaration><![CDATA[{attribute 'enable_dynamic_creation'}
+FUNCTION_BLOCK FB_ParallelJobContainer EXTENDS FB_AbstructContainer
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	_initialize :BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="_append_job" Id="{81418414-1797-4aac-a0ce-a5cebe4c8012}">
+      <Declaration><![CDATA[METHOD PROTECTED _append_job : BOOL
+VAR_INPUT
+	executor	: REFERENCE TO FB_Executor;
+END_VAR
+VAR
+	_parent_future_id :STRING;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF __ISVALIDREF(executor) AND _num_of_jobs < ParamFuturesLib.MAX_TASK_NUM THEN
+	executor.init();
+	_num_of_jobs := _num_of_jobs + 1;
+	executor.id := UINT_TO_STRING(_num_of_jobs);
+	_executors[_num_of_jobs] := ADR(executor);
+	IF  __ISVALIDREF(_executor) THEN
+		// Propergate task creator object
+		_executors[_num_of_jobs]^.job_event_reporter := _executor.job_event_reporter;
+		_executors[_num_of_jobs]^.parent_executor REF= _executor;
+		_executors[_num_of_jobs]^.upstream_aborting := _executor.upstream_aborting;
+		_parent_future_id := _executor.id;
+	END_IF
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_index_generator_" Id="{dd39dd0c-7557-43d9-b714-1347c8d3d391}">
+      <Declaration><![CDATA[(* This is the generator that iteratively generates references to FB_executor instances*)
+METHOD _index_generator_ : UINT
+VAR_INST
+	_index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _index > _num_of_jobs THEN
+	_index := 0;
+ELSE
+	_index := _index + 1;
+END_IF
+_index_generator_ := _index;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="abort" Id="{6723fd47-ba3e-4a36-9944-cfce9135076b}">
+      <Declaration><![CDATA[METHOD abort : BOOL // Return TRUE if finish.
+VAR
+	_all_done : BOOL;
+END_VAR
+VAR_INST
+	_executor : REFERENCE TO FB_Executor;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_all_done := TRUE;
+REPEAT
+	_executor REF= THIS^.each_executor;
+	IF __ISVALIDREF(_executor) THEN
+		IF NOT _executor.abort() THEN
+			_all_done := FALSE;
+		END_IF
+	END_IF
+UNTIL
+	NOT __ISVALIDREF(_executor)
+END_REPEAT
+abort := _all_done;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="execute" Id="{c011c6dd-8dac-426e-8a5d-1e6786a4ab46}">
+      <Declaration><![CDATA[METHOD execute : BOOL // Return TRUE if finish.
+VAR_INST
+	i :UINT;
+	complete_all_task :BOOL;
+	wait_for_initilize :BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _num_of_jobs = 0 THEN
+	RETURN;
+END_IF
+
+complete_all_task := TRUE;
+FOR i := 1 TO _num_of_jobs DO
+	// Execute all methods
+	IF _executors[i]^.current_state < E_FutureExecutionState.finish THEN
+		IF NOT _executors[i]^.execute() THEN
+			complete_all_task := FALSE;
+		END_IF
+	END_IF
+	
+	CASE _executors[i]^.current_state OF 
+		E_FutureExecutionState.wait_for_process:
+			IF _executors[i]^.ready AND _auto_start THEN
+				_executors[i]^.start();
+			END_IF
+	END_CASE
+
+	_error_id := 0;	
+	IF FAILED(_executors[i]^.nErrorID) THEN
+		_error_id := _executors[i]^.nErrorID;
+	END_IF
+END_FOR
+
+current_executing_future := _executors[_num_of_jobs]^.future;
+
+execute := complete_all_task;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="init" Id="{625c2131-03a0-45b4-9fa6-8b896834412c}">
+      <Declaration><![CDATA[METHOD init : BOOL // Return TRUE if finish.
+VAR
+	_executor : REFERENCE TO FB_Executor;
+	_init_done : BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_init_done := TRUE;
+REPEAT
+	_executor REF= THIS^.each_executor;
+	IF __ISVALIDREF(_executor) THEN
+		_executor.job_event_reporter := THIS^._executor.job_event_reporter;
+		IF NOT _executor.init() THEN
+			_init_done := FALSE;
+		END_IF
+	END_IF
+UNTIL
+	NOT __ISVALIDREF(_executor)
+END_REPEAT
+
+_error_id := 0;
+init := _init_done;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="quit" Id="{45e620fb-665e-4cea-b7f5-8d6c239f0a4c}">
+      <Declaration><![CDATA[METHOD quit : BOOL // Return TRUE if finish.
+VAR_INST
+	i: UINT;
+	complete_all_task :BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[complete_all_task := TRUE;
+FOR i := 1 TO _num_of_jobs DO
+	IF NOT FAILED(_executors[i]^.nErrorID) THEN
+		_executors[i]^.execute();
+	ELSE
+		_error_id := _executors[i]^.nErrorID;
+	END_IF
+	IF NOT (_executors[i]^.current_state = E_FutureExecutionState.finish) THEN
+		complete_all_task := FALSE;	
+	END_IF
+END_FOR
+
+IF complete_all_task THEN
+	_initialize := FALSE;
+	quit := TRUE;	
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="start" Id="{ee5f3f9a-6bf3-4152-ba8b-8cd61ca8e446}">
+      <Declaration><![CDATA[METHOD start : BOOL
+VAR
+	_all_done : BOOL;
+END_VAR
+VAR_INST
+	_executor : REFERENCE TO FB_Executor;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_all_done := TRUE;
+REPEAT
+	_executor REF= THIS^.each_executor;
+	IF __ISVALIDREF(_executor) THEN
+		IF NOT _executor.start() THEN
+			_all_done := FALSE;
+		END_IF
+	END_IF
+UNTIL
+	NOT __ISVALIDREF(_executor)
+END_REPEAT
+start := _all_done;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_ParallelJobContainer">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer._append_job">
+      <LineId Id="24" Count="0" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="60" Count="0" />
+      <LineId Id="26" Count="4" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="31" Count="1" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="7" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer._index_generator_">
+      <LineId Id="50" Count="0" />
+      <LineId Id="53" Count="0" />
+      <LineId Id="55" Count="1" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="61" Count="0" />
+      <LineId Id="20" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer.abort">
+      <LineId Id="108" Count="10" />
+      <LineId Id="100" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer.execute">
+      <LineId Id="11" Count="28" />
+      <LineId Id="4" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer.init">
+      <LineId Id="219" Count="12" />
+      <LineId Id="233" Count="0" />
+      <LineId Id="216" Count="0" />
+      <LineId Id="62" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer.quit">
+      <LineId Id="13" Count="1" />
+      <LineId Id="20" Count="3" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="16" Count="2" />
+      <LineId Id="4" Count="0" />
+      <LineId Id="32" Count="1" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="34" Count="1" />
+      <LineId Id="24" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ParallelJobContainer.start">
+      <LineId Id="29" Count="10" />
+      <LineId Id="22" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
