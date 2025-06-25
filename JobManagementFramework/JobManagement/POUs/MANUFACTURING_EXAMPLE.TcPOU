@@ -1,0 +1,286 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MANUFACTURING_EXAMPLE" Id="{55555555-6666-7777-8888-999999999999}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MANUFACTURING_EXAMPLE
+VAR
+	// 製造システムI/O
+	system_io : ST_ManufacturingSystemIO;
+	
+	// 製造シーケンスコントローラー
+	manufacturing_controller : ManufacturingSequenceController;
+	
+	// シミュレーション用変数
+	simulation_mode : BOOL := TRUE; // シミュレーションモード
+	part_placement_timer : TON; // 部品配置シミュレーション用タイマー
+	auto_part_placement : BOOL := TRUE; // 自動部品配置モード
+	part_cycle_time : TIME := T#10S; // 部品配置サイクル時間
+	
+	// デバッグ・監視用変数
+	cycle_count : UDINT; // 実行サイクル数
+	total_parts_processed : UDINT; // 処理済み部品総数
+	last_cycle_time : TIME; // 前回サイクル時間
+	cycle_start_time : TIME;
+	current_time : TIME;
+	
+	// 手動操作用
+	manual_start : BOOL; // 手動スタート
+	manual_stop : BOOL; // 手動ストップ
+	manual_reset : BOOL; // 手動リセット
+	manual_place_part : BOOL; // 手動部品配置
+	emergency_stop : BOOL; // 緊急停止
+	
+	// 初期化フラグ
+	system_initialized : BOOL := FALSE;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// システム初期化
+IF NOT system_initialized THEN
+	initialize_system();
+	system_initialized := TRUE;
+END_IF
+
+// シミュレーションモード処理
+IF simulation_mode THEN
+	simulate_system_behavior();
+END_IF
+
+// 手動操作処理
+handle_manual_operations();
+
+// 製造コントローラー実行
+manufacturing_controller(system_io := system_io);
+
+// 統計情報更新
+update_statistics();
+
+// デバッグ情報表示
+display_debug_information();]]></ST>
+    </Implementation>
+    <Method Name="display_debug_information" Id="{55555555-6666-7777-8888-aaaaaaaaaaaa}">
+      <Declaration><![CDATA[METHOD display_debug_information : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// デバッグ情報をコメントで表示（実際の実装では診断画面やログ出力に使用）
+// Current Status: manufacturing_controller.current_step
+// Cycle Count: cycle_count
+// Parts Processed: total_parts_processed
+// Last Cycle Time: TIME_TO_STRING(last_cycle_time)
+// Error Code: manufacturing_controller.error_code
+
+// 簡易デバッグ表示例（実装では適切な出力方法を使用）
+display_debug_information := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_manual_operations" Id="{55555555-6666-7777-8888-bbbbbbbbbbbb}">
+      <Declaration><![CDATA[METHOD handle_manual_operations : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 手動スタート処理
+IF manual_start THEN
+	system_io.start_switch := TRUE;
+	manual_start := FALSE;
+ELSE
+	system_io.start_switch := FALSE;
+END_IF
+
+// 手動ストップ処理
+IF manual_stop OR emergency_stop THEN
+	system_io.stop_switch := TRUE;
+	manual_stop := FALSE;
+ELSE
+	system_io.stop_switch := FALSE;
+END_IF
+
+// 手動リセット処理
+IF manual_reset THEN
+	system_io.reset_switch := TRUE;
+	manual_reset := FALSE;
+ELSE
+	system_io.reset_switch := FALSE;
+END_IF
+
+// 手動部品配置
+IF manual_place_part THEN
+	system_io.part_present_sensor := TRUE;
+	manual_place_part := FALSE;
+END_IF
+
+// 緊急停止処理
+IF emergency_stop THEN
+	// 全ての出力を安全状態に
+	system_io.gripper_close_output := FALSE;
+	system_io.gripper_open_output := FALSE;
+	// エラーランプ点灯
+	system_io.error_lamp := TRUE;
+	system_io.ready_lamp := FALSE;
+	system_io.running_lamp := FALSE;
+	system_io.completed_lamp := FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="initialize_system" Id="{55555555-6666-7777-8888-cccccccccccc}">
+      <Declaration><![CDATA[METHOD initialize_system : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// システムI/O初期化
+system_io.start_switch := FALSE;
+system_io.stop_switch := FALSE;
+system_io.reset_switch := FALSE;
+system_io.part_present_sensor := FALSE;
+system_io.gripper_closed_sensor := FALSE;
+system_io.gripper_open_sensor := TRUE; // グリッパーは初期状態で開状態
+
+// ランプ初期化
+system_io.ready_lamp := FALSE;
+system_io.running_lamp := FALSE;
+system_io.error_lamp := FALSE;
+system_io.completed_lamp := FALSE;
+
+// グリッパー出力初期化
+system_io.gripper_close_output := FALSE;
+system_io.gripper_open_output := FALSE;
+
+// 軸初期化（実際の実装では軸設定が必要）
+// system_io.x_axis.???
+// system_io.y_axis.???
+// system_io.z_axis.???
+
+// 位置パラメータ設定（既にデフォルト値が設定済み）
+// カスタム位置設定例:
+// system_io.pick_position_x := 250.0;
+// system_io.place_position_x := 450.0;
+
+// モーション制御パラメータ設定（既にデフォルト値が設定済み）
+// カスタム速度設定例:
+// system_io.velocity_xy := 600.0;
+// system_io.velocity_z := 250.0;
+
+// タイマー初期化
+part_placement_timer(IN := FALSE);
+
+// 統計初期化
+cycle_count := 0;
+total_parts_processed := 0;
+
+initialize_system := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="simulate_system_behavior" Id="{55555555-6666-7777-8888-dddddddddddd}">
+      <Declaration><![CDATA[METHOD simulate_system_behavior : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 自動部品配置シミュレーション
+IF auto_part_placement AND NOT system_io.part_present_sensor THEN
+	part_placement_timer(IN := TRUE, PT := part_cycle_time);
+	IF part_placement_timer.Q THEN
+		system_io.part_present_sensor := TRUE;
+		part_placement_timer(IN := FALSE);
+	END_IF
+ELSE
+	part_placement_timer(IN := FALSE);
+END_IF
+
+// グリッパーセンサーシミュレーション
+IF system_io.gripper_close_output AND NOT system_io.gripper_open_output THEN
+	// グリッパー閉指令が出ている場合
+	system_io.gripper_closed_sensor := TRUE;
+	system_io.gripper_open_sensor := FALSE;
+ELSIF system_io.gripper_open_output AND NOT system_io.gripper_close_output THEN
+	// グリッパー開指令が出ている場合
+	system_io.gripper_closed_sensor := FALSE;
+	system_io.gripper_open_sensor := TRUE;
+END_IF
+
+// 部品処理完了時の部品センサーリセット
+IF manufacturing_controller.sequence_completed THEN
+	system_io.part_present_sensor := FALSE;
+END_IF
+
+// 軸シミュレーション（実際の軸制御の代わり）
+// 実際の実装では、TwinCAT Motion Control ファンクションブロックを使用
+// ここではシミュレーション用の簡易実装
+simulate_axis_motion();
+
+simulate_system_behavior := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="simulate_axis_motion" Id="{55555555-6666-7777-8888-eeeeeeeeeeee}">
+      <Declaration><![CDATA[METHOD simulate_axis_motion : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 軸シミュレーション
+// 実際の実装では以下のようなMotion Controlブロックを使用:
+// MC_Power, MC_MoveAbsolute, MC_Reset等
+
+// シミュレーション用の簡易軸状態設定
+// X軸シミュレーション
+system_io.x_axis.Status.Homed := TRUE;
+system_io.x_axis.Status.InMotion := FALSE;
+system_io.x_axis.Status.Error := FALSE;
+system_io.x_axis.Status.ErrorID := 0;
+
+// Y軸シミュレーション
+system_io.y_axis.Status.Homed := TRUE;
+system_io.y_axis.Status.InMotion := FALSE;
+system_io.y_axis.Status.Error := FALSE;
+system_io.y_axis.Status.ErrorID := 0;
+
+// Z軸シミュレーション
+system_io.z_axis.Status.Homed := TRUE;
+system_io.z_axis.Status.InMotion := FALSE;
+system_io.z_axis.Status.Error := FALSE;
+system_io.z_axis.Status.ErrorID := 0;
+
+simulate_axis_motion := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="update_statistics" Id="{55555555-6666-7777-8888-ffffffffffff}">
+      <Declaration><![CDATA[METHOD update_statistics : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// サイクル開始時間記録
+IF manufacturing_controller.sequence_active AND cycle_start_time = T#0MS THEN
+	// サイクル開始
+	cycle_start_time := TIME();
+END_IF
+
+// サイクル完了時の統計更新
+IF manufacturing_controller.sequence_completed THEN
+	cycle_count := cycle_count + 1;
+	total_parts_processed := total_parts_processed + 1;
+	
+	// サイクル時間計算
+	current_time := TIME();
+	IF cycle_start_time <> T#0MS THEN
+		last_cycle_time := current_time - cycle_start_time;
+		cycle_start_time := T#0MS;
+	END_IF
+END_IF
+
+update_statistics := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="MANUFACTURING_EXAMPLE">
+      <LineId Id="1" Count="23" />
+    </LineIds>
+    <LineIds Name="MANUFACTURING_EXAMPLE.display_debug_information">
+      <LineId Id="1" Count="9" />
+    </LineIds>
+    <LineIds Name="MANUFACTURING_EXAMPLE.handle_manual_operations">
+      <LineId Id="1" Count="42" />
+    </LineIds>
+    <LineIds Name="MANUFACTURING_EXAMPLE.initialize_system">
+      <LineId Id="1" Count="48" />
+    </LineIds>
+    <LineIds Name="MANUFACTURING_EXAMPLE.simulate_system_behavior">
+      <LineId Id="1" Count="33" />
+    </LineIds>
+    <LineIds Name="MANUFACTURING_EXAMPLE.simulate_axis_motion">
+      <LineId Id="1" Count="26" />
+    </LineIds>
+    <LineIds Name="MANUFACTURING_EXAMPLE.update_statistics">
+      <LineId Id="1" Count="21" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

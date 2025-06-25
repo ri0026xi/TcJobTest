@@ -1,0 +1,153 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FutureStatusLampControl" Id="{11111111-2222-3333-4444-555555555555}" SpecialFunc="None">
+    <Declaration><![CDATA[{attribute 'enable_dynamic_creation'}
+FUNCTION_BLOCK FutureStatusLampControl EXTENDS FB_AbstructFuture
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	_ready_lamp : REFERENCE TO BOOL;
+	_running_lamp : REFERENCE TO BOOL;
+	_error_lamp : REFERENCE TO BOOL;
+	_completed_lamp : REFERENCE TO BOOL;
+	_lamp_state : UINT; // 0=All OFF, 1=Ready, 2=Running, 3=Error, 4=Completed
+	_blink_timer : TON;
+	_blink_state : BOOL;
+	_blink_interval : TIME := T#500MS;
+	_error_id : UDINT;
+	_exec_state : UDINT;
+END_VAR
+
+// ランプ状態定数
+VAR CONSTANT
+	LAMP_ALL_OFF : UINT := 0;
+	LAMP_READY : UINT := 1;
+	LAMP_RUNNING : UINT := 2;
+	LAMP_ERROR : UINT := 3;
+	LAMP_COMPLETED : UINT := 4;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="execute" Id="{11111111-2222-3333-4444-666666666666}">
+      <Declaration><![CDATA[METHOD execute : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _exec_state OF
+	0: // 初期化とランプ制御開始
+		_blink_timer(IN := FALSE);
+		_exec_state := 1;
+		
+	1: // ランプ制御実行
+		// 点滅タイマー処理
+		_blink_timer(IN := TRUE, PT := _blink_interval);
+		IF _blink_timer.Q THEN
+			_blink_timer(IN := FALSE);
+			_blink_state := NOT _blink_state;
+		END_IF
+		
+		// 全ランプ初期化
+		_ready_lamp := FALSE;
+		_running_lamp := FALSE;
+		_error_lamp := FALSE;
+		_completed_lamp := FALSE;
+		
+		// 状態に応じたランプ制御
+		CASE _lamp_state OF
+			LAMP_ALL_OFF: // 全消灯
+				// すべてFALSE（既に設定済み）
+				
+			LAMP_READY: // 準備完了（緑色点灯）
+				_ready_lamp := TRUE;
+				
+			LAMP_RUNNING: // 動作中（青色点滅）
+				_running_lamp := _blink_state;
+				
+			LAMP_ERROR: // エラー（赤色点滅）
+				_error_lamp := _blink_state;
+				
+			LAMP_COMPLETED: // 完了（緑色2回点滅後点灯）
+				_completed_lamp := TRUE;
+		END_CASE
+		
+		_error_id := 0;
+		execute := TRUE; // ランプ制御は即座に完了
+END_CASE
+
+_blink_timer();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="init" Id="{11111111-2222-3333-4444-777777777777}">
+      <Declaration><![CDATA[METHOD init : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_exec_state := 0;
+_error_id := 0;
+_blink_state := FALSE;
+_blink_timer(IN := FALSE);
+init := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="nErrorID" Id="{11111111-2222-3333-4444-888888888888}">
+      <Declaration><![CDATA[PROPERTY nErrorID : UDINT]]></Declaration>
+      <Get Name="Get" Id="{11111111-2222-3333-4444-999999999999}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[nErrorID := _error_id;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{11111111-2222-3333-4444-aaaaaaaaaaaa}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="set_parameters" Id="{11111111-2222-3333-4444-bbbbbbbbbbbb}">
+      <Declaration><![CDATA[METHOD set_parameters : BOOL
+VAR_INPUT
+	ready_lamp : REFERENCE TO BOOL;
+	running_lamp : REFERENCE TO BOOL;
+	error_lamp : REFERENCE TO BOOL;
+	completed_lamp : REFERENCE TO BOOL;
+	lamp_state : UINT; // 使用するランプ状態定数
+	blink_interval : TIME := T#500MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_ready_lamp REF= ready_lamp;
+_running_lamp REF= running_lamp;
+_error_lamp REF= error_lamp;
+_completed_lamp REF= completed_lamp;
+_lamp_state := lamp_state;
+_blink_interval := blink_interval;
+set_parameters := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FutureStatusLampControl">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControl.execute">
+      <LineId Id="1" Count="42" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControl.init">
+      <LineId Id="1" Count="4" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControl.nErrorID.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControl.nErrorID.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControl.set_parameters">
+      <LineId Id="1" Count="6" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

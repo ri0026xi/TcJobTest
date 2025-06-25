@@ -1,0 +1,98 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FutureStatusLampControlCreator" Id="{22222222-3333-4444-5555-666666666666}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FutureStatusLampControlCreator IMPLEMENTS InterfaceTaskCreator
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	_ready_lamp : REFERENCE TO BOOL;
+	_running_lamp : REFERENCE TO BOOL;
+	_error_lamp : REFERENCE TO BOOL;
+	_completed_lamp : REFERENCE TO BOOL;
+	_lamp_state : UINT;
+	_blink_interval : TIME := T#500MS;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="create_future" Id="{22222222-3333-4444-5555-777777777777}">
+      <Declaration><![CDATA[METHOD create_future : InterfaceFuture
+VAR_INPUT
+    future_name : STRING;
+END_VAR
+VAR
+    _p_future : POINTER TO FutureStatusLampControl;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_p_future := __NEW(FutureStatusLampControl);
+_p_future^.future_name := future_name;
+
+_p_future^.set_parameters(
+    ready_lamp := _ready_lamp,
+    running_lamp := _running_lamp,
+    error_lamp := _error_lamp,
+    completed_lamp := _completed_lamp,
+    lamp_state := _lamp_state,
+    blink_interval := _blink_interval
+);
+
+create_future := _p_future^;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="destroy_future" Id="{22222222-3333-4444-5555-888888888888}">
+      <Declaration><![CDATA[METHOD destroy_future : InterfaceFuture
+VAR_INPUT
+    future : InterfaceFuture;
+END_VAR
+VAR
+    _p_future : POINTER TO FutureStatusLampControl;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF __QUERYPOINTER(future, _p_future) THEN
+	__DELETE(_p_future);
+	IF _p_future = 0 THEN
+		destroy_future := 0;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="set_parameters" Id="{22222222-3333-4444-5555-999999999999}">
+      <Declaration><![CDATA[METHOD set_parameters : BOOL
+VAR_INPUT
+	ready_lamp : REFERENCE TO BOOL;
+	running_lamp : REFERENCE TO BOOL;
+	error_lamp : REFERENCE TO BOOL;
+	completed_lamp : REFERENCE TO BOOL;
+	lamp_state : UINT;
+	blink_interval : TIME := T#500MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_ready_lamp REF= ready_lamp;
+_running_lamp REF= running_lamp;
+_error_lamp REF= error_lamp;
+_completed_lamp REF= completed_lamp;
+_lamp_state := lamp_state;
+_blink_interval := blink_interval;
+set_parameters := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FutureStatusLampControlCreator">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControlCreator.create_future">
+      <LineId Id="1" Count="11" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControlCreator.destroy_future">
+      <LineId Id="1" Count="5" />
+    </LineIds>
+    <LineIds Name="FutureStatusLampControlCreator.set_parameters">
+      <LineId Id="1" Count="6" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

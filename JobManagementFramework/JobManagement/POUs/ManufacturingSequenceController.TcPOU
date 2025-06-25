@@ -1,0 +1,549 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="ManufacturingSequenceController" Id="{44444444-5555-6666-7777-888888888888}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ManufacturingSequenceController
+VAR_INPUT
+	system_io : REFERENCE TO ST_ManufacturingSystemIO; // システムI/O参照
+END_VAR
+VAR_OUTPUT
+	sequence_active : BOOL; // シーケンス実行中フラグ
+	sequence_completed : BOOL; // シーケンス完了フラグ
+	error_code : UDINT; // エラーコード
+	current_step : STRING(255); // 現在の実行ステップ
+END_VAR
+VAR
+	// ジョブ管理
+	main_job : FB_Executor;
+	
+	// ファクトリクリエーター
+	move_absolute_creator : FutureMCMoveAbsoluteCreator;
+	gripper_control_creator : FutureGripperControlCreator;
+	lamp_control_creator : FutureStatusLampControlCreator;
+	sleep_creator : FutureSleepCreator;
+	
+	// 制御状態
+	controller_state : UINT;
+	sequence_step : UINT;
+	previous_start_switch : BOOL;
+	previous_reset_switch : BOOL;
+	job_created : BOOL;
+	
+	// エラー処理
+	error_recovery_timer : TON;
+	error_timeout : TIME := T#30S;
+END_VAR
+
+// 制御状態定数
+VAR CONSTANT
+	STATE_IDLE : UINT := 0;
+	STATE_READY : UINT := 1;
+	STATE_WAITING_FOR_PART : UINT := 2;
+	STATE_SEQUENCE_RUNNING : UINT := 3;
+	STATE_SEQUENCE_COMPLETED : UINT := 4;
+	STATE_ERROR : UINT := 5;
+	STATE_RESET : UINT := 6;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// メイン制御ロジック
+CASE controller_state OF
+	STATE_IDLE: // 待機状態
+		handle_idle_state();
+		
+	STATE_READY: // 準備完了状態
+		handle_ready_state();
+		
+	STATE_WAITING_FOR_PART: // 部品待ち状態
+		handle_waiting_for_part_state();
+		
+	STATE_SEQUENCE_RUNNING: // シーケンス実行中
+		handle_sequence_running_state();
+		
+	STATE_SEQUENCE_COMPLETED: // シーケンス完了
+		handle_sequence_completed_state();
+		
+	STATE_ERROR: // エラー状態
+		handle_error_state();
+		
+	STATE_RESET: // リセット状態
+		handle_reset_state();
+END_CASE
+
+// エラー検出
+detect_errors();
+
+// 出力更新
+update_outputs();]]></ST>
+    </Implementation>
+    <Method Name="create_manufacturing_sequence" Id="{44444444-5555-6666-7777-999999999999}">
+      <Declaration><![CDATA[METHOD create_manufacturing_sequence : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// メインジョブコンテナ作成
+main_job.create_container(ContainerType.BATCH, 'ピック&プレース製造シーケンス');
+
+// 1. 準備完了ランプ点灯
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 1, // LAMP_READY
+	blink_interval := T#500MS
+);
+main_job.children.create_future(lamp_control_creator, 'ランプ：準備完了');
+
+// 2. X軸ホーム位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.x_axis,
+	position := system_io.home_position_x,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'X軸：ホーム位置移動');
+
+// 3. Y軸ホーム位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.y_axis,
+	position := system_io.home_position_y,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Y軸：ホーム位置移動');
+
+// 4. Z軸ホーム位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.z_axis,
+	position := system_io.home_position_z,
+	velocity := system_io.velocity_z,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Z軸：ホーム位置移動');
+
+// 5. グリッパー開
+gripper_control_creator.set_parameters(
+	gripper_close_output := system_io.gripper_close_output,
+	gripper_open_output := system_io.gripper_open_output,
+	gripper_closed_sensor := system_io.gripper_closed_sensor,
+	gripper_open_sensor := system_io.gripper_open_sensor,
+	command := FALSE, // Open
+	timeout := T#5S
+);
+main_job.children.create_future(gripper_control_creator, 'グリッパー：開');
+
+// 6. 動作中ランプ点灯
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 2, // LAMP_RUNNING
+	blink_interval := T#500MS
+);
+main_job.children.create_future(lamp_control_creator, 'ランプ：動作中');
+
+// 7. X軸ピック位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.x_axis,
+	position := system_io.pick_position_x,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'X軸：ピック位置移動');
+
+// 8. Y軸ピック位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.y_axis,
+	position := system_io.pick_position_y,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Y軸：ピック位置移動');
+
+// 9. Z軸下降（ピック高さ）
+move_absolute_creator.set_parameters(
+	axis := system_io.z_axis,
+	position := system_io.pick_position_z,
+	velocity := system_io.velocity_z,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Z軸：ピック高さ下降');
+
+// 10. グリッパー閉（部品把持）
+gripper_control_creator.set_parameters(
+	gripper_close_output := system_io.gripper_close_output,
+	gripper_open_output := system_io.gripper_open_output,
+	gripper_closed_sensor := system_io.gripper_closed_sensor,
+	gripper_open_sensor := system_io.gripper_open_sensor,
+	command := TRUE, // Close
+	timeout := T#5S
+);
+main_job.children.create_future(gripper_control_creator, 'グリッパー：閉（把持）');
+
+// 11. Z軸上昇
+move_absolute_creator.set_parameters(
+	axis := system_io.z_axis,
+	position := system_io.home_position_z,
+	velocity := system_io.velocity_z,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Z軸：上昇');
+
+// 12. X軸プレース位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.x_axis,
+	position := system_io.place_position_x,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'X軸：プレース位置移動');
+
+// 13. Y軸プレース位置移動
+move_absolute_creator.set_parameters(
+	axis := system_io.y_axis,
+	position := system_io.place_position_y,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Y軸：プレース位置移動');
+
+// 14. Z軸下降（プレース高さ）
+move_absolute_creator.set_parameters(
+	axis := system_io.z_axis,
+	position := system_io.place_position_z,
+	velocity := system_io.velocity_z,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Z軸：プレース高さ下降');
+
+// 15. グリッパー開（部品リリース）
+gripper_control_creator.set_parameters(
+	gripper_close_output := system_io.gripper_close_output,
+	gripper_open_output := system_io.gripper_open_output,
+	gripper_closed_sensor := system_io.gripper_closed_sensor,
+	gripper_open_sensor := system_io.gripper_open_sensor,
+	command := FALSE, // Open
+	timeout := T#5S
+);
+main_job.children.create_future(gripper_control_creator, 'グリッパー：開（リリース）');
+
+// 16. Z軸上昇
+move_absolute_creator.set_parameters(
+	axis := system_io.z_axis,
+	position := system_io.home_position_z,
+	velocity := system_io.velocity_z,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Z軸：最終上昇');
+
+// 17. X軸ホーム復帰
+move_absolute_creator.set_parameters(
+	axis := system_io.x_axis,
+	position := system_io.home_position_x,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'X軸：ホーム復帰');
+
+// 18. Y軸ホーム復帰
+move_absolute_creator.set_parameters(
+	axis := system_io.y_axis,
+	position := system_io.home_position_y,
+	velocity := system_io.velocity_xy,
+	acceleration := system_io.acceleration,
+	deceleration := system_io.deceleration,
+	jerk := system_io.jerk,
+	buffer_mode := MC_BufferMode.mcAborting
+);
+main_job.children.create_future(move_absolute_creator, 'Y軸：ホーム復帰');
+
+// 19. 完了ランプ点灯
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 4, // LAMP_COMPLETED
+	blink_interval := T#500MS
+);
+main_job.children.create_future(lamp_control_creator, 'ランプ：完了');
+
+// 20. 完了待機
+sleep_creator.set_parameters(sleep_time := T#2S);
+main_job.children.create_future(sleep_creator, '完了待機');
+
+create_manufacturing_sequence := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="detect_errors" Id="{44444444-5555-6666-7777-aaaaaaaaaaaa}">
+      <Declaration><![CDATA[METHOD detect_errors : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 停止スイッチ押下検出
+IF system_io.stop_switch AND controller_state = STATE_SEQUENCE_RUNNING THEN
+	controller_state := STATE_ERROR;
+	error_code := 16#8100; // User stop requested
+	current_step := 'ユーザー停止要求';
+END_IF
+
+// ジョブエラー検出
+IF main_job.nErrorID <> 0 AND controller_state = STATE_SEQUENCE_RUNNING THEN
+	controller_state := STATE_ERROR;
+	error_code := main_job.nErrorID;
+	current_step := 'ジョブ実行エラー';
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_error_state" Id="{44444444-5555-6666-7777-bbbbbbbbbbbb}">
+      <Declaration><![CDATA[METHOD handle_error_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// エラーランプ点滅
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 3, // LAMP_ERROR
+	blink_interval := T#250MS
+);
+
+// ジョブ中断
+main_job.abort();
+
+// リセットスイッチ検出
+IF system_io.reset_switch AND NOT previous_reset_switch THEN
+	controller_state := STATE_RESET;
+END_IF
+
+sequence_active := FALSE;
+current_step := 'エラー状態';]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_idle_state" Id="{44444444-5555-6666-7777-cccccccccccc}">
+      <Declaration><![CDATA[METHOD handle_idle_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 全ランプ消灯
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 0, // LAMP_ALL_OFF
+	blink_interval := T#500MS
+);
+
+// スタートスイッチ押下検出
+IF system_io.start_switch AND NOT previous_start_switch THEN
+	controller_state := STATE_READY;
+	job_created := FALSE;
+END_IF
+
+sequence_active := FALSE;
+sequence_completed := FALSE;
+error_code := 0;
+current_step := '待機中';]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_ready_state" Id="{44444444-5555-6666-7777-dddddddddddd}">
+      <Declaration><![CDATA[METHOD handle_ready_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 準備完了ランプ点灯
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 1, // LAMP_READY
+	blink_interval := T#500MS
+);
+
+// ジョブシーケンス作成
+IF NOT job_created THEN
+	IF create_manufacturing_sequence() THEN
+		job_created := TRUE;
+		controller_state := STATE_WAITING_FOR_PART;
+	END_IF
+END_IF
+
+current_step := '準備完了';]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_reset_state" Id="{44444444-5555-6666-7777-eeeeeeeeeeee}">
+      <Declaration><![CDATA[METHOD handle_reset_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// ジョブリセット
+IF main_job.reset() THEN
+	controller_state := STATE_IDLE;
+	job_created := FALSE;
+	sequence_active := FALSE;
+	sequence_completed := FALSE;
+	error_code := 0;
+END_IF
+
+current_step := 'リセット中';]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_sequence_completed_state" Id="{44444444-5555-6666-7777-ffffffffffff}">
+      <Declaration><![CDATA[METHOD handle_sequence_completed_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 完了ランプ点灯
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := 4, // LAMP_COMPLETED
+	blink_interval := T#500MS
+);
+
+sequence_active := FALSE;
+sequence_completed := TRUE;
+current_step := 'シーケンス完了';
+
+// 次のサイクル準備（リセットまたは再スタート）
+IF system_io.reset_switch AND NOT previous_reset_switch THEN
+	controller_state := STATE_RESET;
+ELSIF system_io.start_switch AND NOT previous_start_switch THEN
+	controller_state := STATE_READY;
+	job_created := FALSE;
+	sequence_completed := FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_sequence_running_state" Id="{44444444-5555-6666-7777-gggggggggggg}">
+      <Declaration><![CDATA[METHOD handle_sequence_running_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// ジョブ実行
+IF main_job.execute() AND main_job.nErrorID = 0 THEN
+	controller_state := STATE_SEQUENCE_COMPLETED;
+END_IF
+
+// ジョブ開始処理
+IF main_job.current_state = E_FutureExecutionState.wait_for_process THEN
+	main_job.start();
+END_IF
+
+sequence_active := TRUE;
+current_step := '製造シーケンス実行中';]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="handle_waiting_for_part_state" Id="{44444444-5555-6666-7777-hhhhhhhhhhhh}">
+      <Declaration><![CDATA[METHOD handle_waiting_for_part_state : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 部品検知待ち
+IF system_io.part_present_sensor THEN
+	// ジョブ初期化
+	IF main_job.init() THEN
+		controller_state := STATE_SEQUENCE_RUNNING;
+	END_IF
+END_IF
+
+current_step := '部品検知待ち';]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="update_outputs" Id="{44444444-5555-6666-7777-iiiiiiiiiiii}">
+      <Declaration><![CDATA[METHOD update_outputs : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 前回値保存
+previous_start_switch := system_io.start_switch;
+previous_reset_switch := system_io.reset_switch;
+
+// ランプ制御実行
+lamp_control_creator.set_parameters(
+	ready_lamp := system_io.ready_lamp,
+	running_lamp := system_io.running_lamp,
+	error_lamp := system_io.error_lamp,
+	completed_lamp := system_io.completed_lamp,
+	lamp_state := CASE controller_state OF
+		STATE_IDLE: 0,
+		STATE_READY: 1,
+		STATE_WAITING_FOR_PART: 1,
+		STATE_SEQUENCE_RUNNING: 2,
+		STATE_SEQUENCE_COMPLETED: 4,
+		STATE_ERROR: 3,
+		STATE_RESET: 0,
+		ELSE: 0
+	END_CASE,
+	blink_interval := T#500MS
+);]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="ManufacturingSequenceController">
+      <LineId Id="1" Count="28" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.create_manufacturing_sequence">
+      <LineId Id="1" Count="248" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.detect_errors">
+      <LineId Id="1" Count="12" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_error_state">
+      <LineId Id="1" Count="21" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_idle_state">
+      <LineId Id="1" Count="23" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_ready_state">
+      <LineId Id="1" Count="24" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_reset_state">
+      <LineId Id="1" Count="12" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_sequence_completed_state">
+      <LineId Id="1" Count="26" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_sequence_running_state">
+      <LineId Id="1" Count="14" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.handle_waiting_for_part_state">
+      <LineId Id="1" Count="10" />
+    </LineIds>
+    <LineIds Name="ManufacturingSequenceController.update_outputs">
+      <LineId Id="1" Count="24" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
